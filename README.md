@@ -27,3 +27,7 @@ npm run dev
 - TypeScript
 - React
 - Tailwind CSS
+
+## Backend setup
+
+Supabase, Stripe, environment variables and webhook setup: see [docs/SUPABASE_STRIPE_SETUP.md](docs/SUPABASE_STRIPE_SETUP.md).
