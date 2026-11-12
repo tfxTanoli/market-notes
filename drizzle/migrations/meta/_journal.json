@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793884315298,
+      "tag": "0000_daily_search_allowances",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793885906290,
+      "tag": "0001_peek_daily_search",
+      "breakpoints": true
+    }
+  ]
+}
