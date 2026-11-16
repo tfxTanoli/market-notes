@@ -88,15 +88,19 @@ export const startCheckout = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .inputValidator(planInput)
   .handler(async ({ context, data }) => {
-    const user = await verifiedUser(context);
     const billing = await import('@/lib/stripe.server');
     try {
-      if (await billing.liveSubscriptionFor(user.id)) {
+      const price = billing.priceIdFor(data.plan);
+      // These checks are independent, so run them together instead of one network round trip each.
+      const [user, existing, origin] = await Promise.all([
+        verifiedUser(context),
+        billing.liveSubscriptionFor(context.userId),
+        billing.appOrigin(),
+      ]);
+      if (existing) {
         throw new billing.BillingError('You already have a subscription. Manage it on this page instead of starting a new one.');
       }
-      const price = billing.priceIdFor(data.plan);
       const customer = await billing.ensureCustomer(user.id, user.email);
-      const origin = await billing.appOrigin();
       // Double-clicks within the same minute reuse the same Checkout Session.
       const window = Math.floor(Date.now() / 60_000);
       const session = await billing.stripe().checkout.sessions.create(

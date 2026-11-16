@@ -166,7 +166,7 @@ export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success
   let primary: { label: string; onClick: () => void; disabled: boolean } | null = null;
   if (user && selected && selected !== currentPlan) {
     const name = planById(selected)?.name ?? selected;
-    if (!hasLiveSub) primary = { label: redirecting ? 'Opening secure checkout…' : `Subscribe to ${name}`, onClick: () => void subscribe(selected), disabled: busy || redirecting };
+    if (!hasLiveSub) primary = { label: busy || redirecting ? 'Opening secure checkout…' : `Subscribe to ${name}`, onClick: () => void subscribe(selected), disabled: busy || redirecting };
     else if (canSwitch) primary = { label: `Switch to ${name}`, onClick: () => void change(selected), disabled: busy };
   }
 

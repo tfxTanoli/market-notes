@@ -67,8 +67,11 @@ export async function ensureCustomer(userId: string, email: string | undefined):
   );
   const saved = await supabaseAdmin
     .from('billing_customers')
-    .upsert({ user_id: userId, stripe_customer_id: customer.id }, { onConflict: 'user_id', ignoreDuplicates: true });
+    .upsert({ user_id: userId, stripe_customer_id: customer.id }, { onConflict: 'user_id', ignoreDuplicates: true })
+    .select('stripe_customer_id');
   if (saved.error) throw new BillingError('Your billing account could not be saved. Please try again.');
+  // Inserted by us: no need to read it back. Empty means another request linked a customer first.
+  if (saved.data.length > 0) return customer.id;
   const stored = await supabaseAdmin.from('billing_customers').select('stripe_customer_id').eq('user_id', userId).single();
   if (stored.error) throw new BillingError('Your billing account could not be loaded. Please try again.');
   return stored.data.stripe_customer_id;
