@@ -77,6 +77,33 @@ export async function ensureCustomer(userId: string, email: string | undefined):
   return stored.data.stripe_customer_id;
 }
 
+/** True when Stripe rejected a request because the given customer id does not exist in this account/mode. */
+export function isMissingCustomer(error: unknown): boolean {
+  const e = error as { code?: string; param?: string } | null;
+  return e?.code === 'resource_missing' && e.param === 'customer';
+}
+
+/**
+ * The stored customer no longer exists for the current Stripe key (e.g. it was created in test
+ * mode before going live). Create a fresh one and swap it in, only if the row still holds the
+ * stale id, so concurrent requests end up with the same customer.
+ */
+export async function replaceMissingCustomer(userId: string, email: string | undefined, staleCustomerId: string): Promise<string> {
+  const customer = await stripe().customers.create(
+    { ...(email ? { email } : {}), metadata: { supabase_user_id: userId } },
+    { idempotencyKey: `market-notes-customer-${userId}-replaces-${staleCustomerId}` },
+  );
+  const updated = await supabaseAdmin
+    .from('billing_customers')
+    .update({ stripe_customer_id: customer.id })
+    .eq('user_id', userId)
+    .eq('stripe_customer_id', staleCustomerId);
+  if (updated.error) throw new BillingError('Your billing account could not be saved. Please try again.');
+  const stored = await supabaseAdmin.from('billing_customers').select('stripe_customer_id').eq('user_id', userId).single();
+  if (stored.error) throw new BillingError('Your billing account could not be loaded. Please try again.');
+  return stored.data.stripe_customer_id;
+}
+
 /** Record the customer → user link from a verified Checkout Session (webhook path). */
 export async function linkCustomer(userId: string, customerId: string) {
   const saved = await supabaseAdmin

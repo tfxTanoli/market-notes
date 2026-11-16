@@ -100,24 +100,34 @@ export const startCheckout = createServerFn({ method: 'POST' })
       if (existing) {
         throw new billing.BillingError('You already have a subscription. Manage it on this page instead of starting a new one.');
       }
-      const customer = await billing.ensureCustomer(user.id, user.email);
       // Double-clicks within the same minute reuse the same Checkout Session.
       const window = Math.floor(Date.now() / 60_000);
-      const session = await billing.stripe().checkout.sessions.create(
-        {
-          mode: 'subscription',
-          customer,
-          client_reference_id: user.id,
-          line_items: [{ price, quantity: 1 }],
-          // Always bill in GBP: don't let Stripe present/charge a converted local currency.
-          adaptive_pricing: { enabled: false },
-          metadata: { supabase_user_id: user.id, plan: data.plan },
-          subscription_data: { metadata: { supabase_user_id: user.id, plan: data.plan } },
-          success_url: `${origin}/settings/subscriptions?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${origin}/settings/subscriptions?checkout=cancelled`,
-        },
-        { idempotencyKey: `market-notes-checkout-${user.id}-${data.plan}-${window}` },
-      );
+      const createSession = (customer: string) =>
+        billing.stripe().checkout.sessions.create(
+          {
+            mode: 'subscription',
+            customer,
+            client_reference_id: user.id,
+            line_items: [{ price, quantity: 1 }],
+            // Always bill in GBP: don't let Stripe present/charge a converted local currency.
+            adaptive_pricing: { enabled: false },
+            metadata: { supabase_user_id: user.id, plan: data.plan },
+            subscription_data: { metadata: { supabase_user_id: user.id, plan: data.plan } },
+            success_url: `${origin}/settings/subscriptions?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${origin}/settings/subscriptions?checkout=cancelled`,
+          },
+          { idempotencyKey: `market-notes-checkout-${user.id}-${customer}-${data.plan}-${window}` },
+        );
+      const customer = await billing.ensureCustomer(user.id, user.email);
+      let session;
+      try {
+        session = await createSession(customer);
+      } catch (error) {
+        // A customer saved under a different Stripe key/mode (e.g. test before going live) can't be used.
+        if (!billing.isMissingCustomer(error)) throw error;
+        console.error('[billing] stored Stripe customer not found for current key; replacing it');
+        session = await createSession(await billing.replaceMissingCustomer(user.id, user.email, customer));
+      }
       if (!session.url) throw new billing.BillingError('Checkout could not be started. Please try again.');
       return { url: session.url };
     } catch (error) {
