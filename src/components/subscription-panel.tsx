@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { preconnect } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServerFn } from '@tanstack/react-start';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -46,6 +47,32 @@ const asRuleInput = (sub: BillingSubscription) => ({
   cancel_at_period_end: sub.cancelAtPeriodEnd,
   cancel_at: sub.cancelAt,
 });
+
+// A Checkout Session prepared while the user looks at a plan is reused for a few minutes so
+// "Subscribe" can leave for Stripe immediately. Stripe sessions stay valid for 24 hours.
+const PREPARED_CHECKOUT_MAX_AGE_MS = 10 * 60_000;
+type PreparedCheckout = { promise: Promise<{ url: string } | undefined>; at: number };
+
+/**
+ * Stripe Checkout refuses to render inside an iframe (e.g. an editor preview), so leave the
+ * frame when embedded. Returns false when the browser blocked every way of opening it.
+ */
+function goToCheckout(url: string): boolean {
+  if (window.self === window.top) {
+    window.location.assign(url);
+    return true;
+  }
+  try {
+    window.top!.location.assign(url);
+    return true;
+  } catch {
+    // Not using the 'noopener' feature: with it, window.open always returns null.
+    const opened = window.open(url, '_blank');
+    if (!opened) return false;
+    opened.opener = null;
+    return true;
+  }
+}
 
 export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success' | 'cancelled' | undefined; sessionId?: string | undefined }) {
   const { user, loading } = useAccount();
@@ -126,13 +153,38 @@ export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success
     }
   }
 
+  const prepared = useRef(new Map<PlanId, PreparedCheckout>());
+  const [checkoutLink, setCheckoutLink] = useState('');
+
   const subscribe = (plan: PlanId) =>
     run(async () => {
-      const result = await beginCheckout({ data: { plan } });
+      setCheckoutLink('');
+      let result: { url: string } | undefined;
+      const ready = prepared.current.get(plan);
+      prepared.current.delete(plan); // a prepared session is used at most once
+      if (ready && Date.now() - ready.at < PREPARED_CHECKOUT_MAX_AGE_MS) {
+        // If preparing failed, ask again so the user sees the error from a real attempt.
+        result = await ready.promise.catch(() => undefined);
+      }
+      if (!result?.url) result = await beginCheckout({ data: { plan } });
       if (!result?.url) throw new Error('Checkout could not be started. Please try again.');
       setRedirecting(true); // keep buttons disabled while the browser leaves for Stripe
-      window.location.assign(result.url);
+      if (!goToCheckout(result.url)) {
+        setRedirecting(false);
+        setCheckoutLink(result.url);
+      }
     });
+
+  // Returning with the browser's Back button can restore this page from cache mid-redirect.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setRedirecting(false);
+      prepared.current.clear();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   const change = (plan: PlanId) =>
     run(async () => {
@@ -169,6 +221,20 @@ export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success
     if (!hasLiveSub) primary = { label: busy || redirecting ? 'Opening secure checkout…' : `Subscribe to ${name}`, onClick: () => void subscribe(selected), disabled: busy || redirecting };
     else if (canSwitch) primary = { label: `Switch to ${name}`, onClick: () => void change(selected), disabled: busy };
   }
+
+  // Prepare checkout as soon as a subscribe button is on screen. The server still makes every
+  // check (signed-in user, no live subscription) and nothing is charged until the user pays on Stripe.
+  const canPrepare = Boolean(user && selected && selected !== currentPlan && status.isSuccess && !hasLiveSub);
+  useEffect(() => {
+    if (!canPrepare || !selected) return;
+    for (const origin of ['https://checkout.stripe.com', 'https://js.stripe.com', 'https://api.stripe.com']) preconnect(origin);
+    const existing = prepared.current.get(selected);
+    if (existing && Date.now() - existing.at < PREPARED_CHECKOUT_MAX_AGE_MS) return;
+    const promise = beginCheckout({ data: { plan: selected } });
+    promise.catch(() => undefined); // errors are surfaced only if the user clicks Subscribe
+    prepared.current.set(selected, { promise, at: Date.now() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrepare, selected]);
 
   return (
     <div>
@@ -277,6 +343,14 @@ export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success
         {activating && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Waiting for Stripe to confirm your payment…
+          </p>
+        )}
+        {checkoutLink && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Your browser blocked the checkout window.{' '}
+            <a href={checkoutLink} target="_blank" rel="noreferrer" className="font-semibold text-foreground underline underline-offset-4">
+              Open secure checkout
+            </a>
           </p>
         )}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
