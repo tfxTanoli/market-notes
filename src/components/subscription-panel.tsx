@@ -301,7 +301,6 @@ export function SubscriptionPanel({ checkout, sessionId }: { checkout?: 'success
                   {isCurrent && <span className="ml-2 rounded-sm bg-foreground px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-background">Current plan</span>}
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">{plan.searches}</p>
-                {plan.saving && <p className="mt-1 text-sm font-bold">{plan.saving}</p>}
               </div>
               <p className="shrink-0 text-right font-semibold">
                 {plan.price}

@@ -10,13 +10,12 @@ export type Plan = {
   price: string;
   period: string;
   searches: string;
-  saving: string;
 };
 
 export const PLANS: readonly Plan[] = [
-  { id: 'monthly', name: 'Starter', price: '£10.99', period: 'every month', searches: 'Unlimited searches', saving: '' },
-  { id: 'quarterly', name: 'Plus', price: '£16', period: 'every 3 months', searches: 'Unlimited searches', saving: 'Save £67.88 a year' },
-  { id: 'yearly', name: 'Pro', price: '£75', period: 'every year', searches: 'Unlimited searches', saving: 'Save £56.88 a year' },
+  { id: 'monthly', name: 'Starter', price: '£10.99', period: 'every month', searches: 'Unlimited searches' },
+  { id: 'quarterly', name: 'Plus', price: '£16', period: 'every 3 months', searches: 'Unlimited searches' },
+  { id: 'yearly', name: 'Pro', price: '£75', period: 'every year', searches: 'Unlimited searches' },
 ];
 
 export function isPlanId(value: unknown): value is PlanId {
